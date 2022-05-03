@@ -87,7 +87,7 @@ app.post("/messages", async (req, res) => {
     });
 
     try {
-        mongoClient.connect();
+        await mongoClient.connect();
         db = mongoClient.db("test");
 
         const validation = schema.validate({
@@ -100,7 +100,7 @@ app.post("/messages", async (req, res) => {
         if(validation.error){
             console.log(error);
             res.sendStatus(422);
-            mongoClient.close();
+            // mongoClient.close();
             return
         }
 
@@ -150,6 +150,68 @@ app.get("/messages", async (req, res) => {
         mongoClient.close();
     }
 })
+
+app.post("/status", async (req, res) =>{
+    const user = req.headers.user;
+    const mongoClient = new MongoClient(process.env.MONGO_API);
+
+    try {
+        await mongoClient.connect();
+        db = mongoClient.db("test");
+
+        const userStatus = await db.collection("users").findOne({name: user});
+        if(!userStatus){
+            res.sendStatus(404);
+            return
+        }
+
+        await db.collection("users").updateOne({name: user}, {$set: {lastStatus: Date.now()}});
+        res.sendStatus(200);
+        mongoClient.close();
+    }
+    catch(error){
+        console.log(error);
+        res.sendStatus(500);
+        mongoClient.close();
+    }
+
+})
+
+setInterval(async () => {
+    const mongoClient = new MongoClient(process.env.MONGO_API);
+
+    try {
+        await mongoClient.connect();
+        db = mongoClient.db("test");
+
+        const allUsers = await db.collection("users").find({}).toArray();
+
+        const offlineUsers = allUsers.filter(user =>{
+            if(parseInt(user.lastStatus) + 10000 < Date.now()){
+                return user;
+            }
+        });
+
+        if(offlineUsers.length > 0){
+            offlineUsers.map(user => {
+                db.collection("users").deleteOne({name: user.name});
+                db.collection("messages").insertOne({
+                    from: user.name, 
+                    to: 'Todos', 
+                    text: 'sai da sala...', 
+                    type: 'status', 
+                    time: dayjs().format("HH:mm:ss")
+                });
+            })
+        }
+
+        //mongoClient.close();
+    }
+    catch(error){
+        console.log(error);
+        //mongoClient.close();
+    }
+}, 15000);
 
 app.listen(5000, () => {
     console.log("Servidor funcional")
